@@ -3,9 +3,10 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 
-API_URL = "http://localhost:5000/create-leave"
-API_SECRET_KEY = "MySecretKey2024"
-BOT_TOKEN = "8810255564:AAGSe6JspZLPmN8dbLbDFlL1rzZhofrxEpM"
+# قراءة الإعدادات من متغيرات البيئة (لـ Render) أو استخدام القيم الافتراضية (للتشغيل المحلي)
+API_URL = os.environ.get("API_URL", "http://localhost:5000/create-leave")
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "MySecretKey2024")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8810255564:AAGSe6JspZLPmN8dbLbDFlL1rzZhofrxEpM")
 
 NAME_AR, NAME_EN, NATIONAL_ID, HOSPITAL, DOCTOR_AR, DOCTOR_EN, DATE_G, DATE_H = range(8)
 
