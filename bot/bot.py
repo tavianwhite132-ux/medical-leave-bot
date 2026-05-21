@@ -1,17 +1,20 @@
 import os
 import requests
+from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 
-# قراءة الإعدادات من متغيرات البيئة (لـ Render) أو استخدام القيم الافتراضية (للتشغيل المحلي)
-API_URL = os.environ.get("API_URL", "http://localhost:5000/create-leave")
+# Flask app for webhook
+flask_app = Flask(__name__)
+
+# Telegram bot
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "MySecretKey2024")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8810255564:AAGSe6JspZLPmN8dbLbDFlL1rzZhofrxEpM")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 NAME_AR, NAME_EN, NATIONAL_ID, HOSPITAL, DOCTOR_AR, DOCTOR_EN, DATE_G, DATE_H = range(8)
-
 user_data = {}
 
+# ==================== دوال البوت ====================
 async def start(update: Update, context):
     keyboard = [[InlineKeyboardButton("📝 إجازة جديدة", callback_data="new_leave")],
                 [InlineKeyboardButton("💰 رصيد النقاط", callback_data="points")],
@@ -27,7 +30,7 @@ async def button_handler(update: Update, context):
         return NAME_AR
     elif query.data == "points":
         try:
-            response = requests.get(f"http://localhost:5000/points/{query.from_user.id}")
+            response = requests.get(f"https://medical-leave-bot.onrender.com/points/{query.from_user.id}")
             if response.status_code == 200:
                 await query.edit_message_text(f"💰 رصيدك: {response.json()['points']} نقطة")
             else:
@@ -88,41 +91,10 @@ async def date_h(update: Update, context):
     await update.message.reply_text("⏳ جاري إنشاء الإجازة...")
     try:
         headers = {"Authorization": f"Bearer {API_SECRET_KEY}"}
-        response = requests.post(API_URL, json=user_data[uid], headers=headers, timeout=30)
+        response = requests.post("https://medical-leave-bot.onrender.com/create-leave", json=user_data[uid], headers=headers, timeout=30)
         if response.status_code == 200:
             result = response.json()
-            pdf_path = result.get('document_path', '')
-            
-            # التحقق من وجود ملف PDF
-            if pdf_path and os.path.exists(pdf_path) and pdf_path.endswith('.pdf'):
-                with open(pdf_path, 'rb') as pdf_file:
-                    await update.message.reply_document(
-                        document=pdf_file,
-                        filename=f"medical_leave_{result['national_id']}.pdf",
-                        caption=f"✅ تم إنشاء الإجازة بنجاح!\n\n"
-                                f"📄 رقم الهوية: {result['national_id']}\n"
-                                f"💰 النقاط المتبقية: {result['remaining_points']}"
-                    )
-            else:
-                # إذا لم يوجد ملف PDF، حاول البحث عن ملف Word
-                word_path = pdf_path.replace('.pdf', '.docx') if pdf_path else None
-                if word_path and os.path.exists(word_path):
-                    with open(word_path, 'rb') as word_file:
-                        await update.message.reply_document(
-                            document=word_file,
-                            filename=f"medical_leave_{result['national_id']}.docx",
-                            caption=f"✅ تم إنشاء الإجازة بنجاح!\n\n"
-                                    f"📄 رقم الهوية: {result['national_id']}\n"
-                                    f"💰 النقاط المتبقية: {result['remaining_points']}\n\n"
-                                    f"⚠️ تم إرسال الملف بصيغة Word (PDF غير متوفر)"
-                        )
-                else:
-                    await update.message.reply_text(
-                        f"✅ تم إنشاء الإجازة!\n\n"
-                        f"📄 رقم الهوية: {result['national_id']}\n"
-                        f"💰 النقاط المتبقية: {result['remaining_points']}\n\n"
-                        f"📁 الملف موجود على الخادم: {pdf_path}"
-                    )
+            await update.message.reply_text(f"✅ تم إنشاء الإجازة!\n📄 رقم الهوية: {result['national_id']}\n💰 النقاط المتبقية: {result['remaining_points']}")
         else:
             error = response.json().get('error', 'خطأ غير معروف')
             await update.message.reply_text(f"❌ فشل: {error}")
@@ -134,7 +106,8 @@ async def cancel(update: Update, context):
     await update.message.reply_text("❌ تم الإلغاء")
     return ConversationHandler.END
 
-def main():
+# ==================== إعداد التطبيق ====================
+def setup_bot():
     app = Application.builder().token(BOT_TOKEN).build()
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^new_leave$")],
@@ -150,8 +123,34 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(points|help)$"))
     app.add_handler(conv_handler)
-    print("🤖 Bot is running...")
-    app.run_polling()
+    return app
+
+# ==================== Flask webhook endpoint ====================
+@flask_app.route("/", methods=["POST", "GET"])
+def webhook():
+    if request.method == "GET":
+        return jsonify({"status": "Bot is running"})
+    
+    try:
+        update = Update.de_json(request.get_json(force=True), setup_bot().bot)
+        setup_bot().process_update(update)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@flask_app.route("/health")
+def health():
+    return jsonify({"status": "healthy"})
+
+@flask_app.route("/points/<int:telegram_id>")
+def points(telegram_id):
+    # TODO: Connect to database
+    return jsonify({"telegram_id": telegram_id, "points": 5})
+
+@flask_app.route("/create-leave", methods=["POST"])
+def create_leave_endpoint():
+    # TODO: Connect to database
+    return jsonify({"success": True, "document_path": "", "remaining_points": 4, "national_id": "123"})
 
 if __name__ == "__main__":
-    main()
+    flask_app.run(host='0.0.0.0', port=5000)
