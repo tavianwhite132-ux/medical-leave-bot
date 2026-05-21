@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
 from database import get_user, create_user, deduct_points, get_points, save_leave
 from pdf_generator import generate_document
+import os
 
 app = Flask(__name__)
-API_SECRET_KEY = "MySecretKey2024"
+
+# قراءة المفتاح من متغيرات البيئة (للـ Render) أو استخدام القيمة الافتراضية (للتشغيل المحلي)
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "MySecretKey2024")
 
 @app.route("/create-leave", methods=["POST"])
 def create_leave():
@@ -53,4 +56,5 @@ def health():
 
 if __name__ == "__main__":
     print("🚀 Backend running on http://localhost:5000")
-    app.run(debug=True, port=5000)
+    # استخدام host='0.0.0.0' للسماح بالاتصال من الخارج (مطلوب لـ Render)
+    app.run(debug=True, host='0.0.0.0', port=5000)
